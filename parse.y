@@ -14,7 +14,11 @@
 %token IMKSTATE IMKSYNCIF IMKTENTATIVE IMKTRAILERS IMKTUNNEL
 %token IMKUP IMKVHID IMKVLAN IMKVLANDEV IMKVLTIME
 
+%token IFACE NUMBER IP4ADDR IPV6ADDR
+
 %{
+#include "y.tab.h"
+
 /* Interface modifiers (must be sorted). */
 struct ifcmod {
 	char *name;	/* Keyword name. */
@@ -76,7 +80,7 @@ struct ifcmod {
 	{ "vlandev",		0, 1, 1, IMKVLANDEV		},
 	{ "vltime",		1, 0, 0, IMKVLTIME		}
 };
-#define NIFCMOD (sizeof(ifcmod) / sizeof(ifcmod[0]))
+#define NIFCMOD (sizeof(ifcmods) / sizeof(ifcmods[0]))
 %}
 
 %token DIMKCOPY DIMKCREATE DIMKDESTROY
@@ -107,15 +111,21 @@ cmd:		dynifmod {
 	|	ifprcr {
 		};
 
-if0 [[af] addr [dstaddr]] [stparams]
-
-ifmod:		iface ifmod {
+ifmod:		IFACE af addr dstaddr stparams {
+		}
+	|	IFACE addr dstaddr stparams {
+		}
+	|	IFACE af addr stparams {
+		}
+	|	IFACE stparams {
+		}
+	|	IFACE addr stparams {
 		};
 
-dynifmod:	iface dynparams
+dynifmod:	IFACE dynparams
 
-ifpr:		"-m" iface
-	|	iface {
+ifpr:		"-m" IFACE
+	|	IFACE {
 		}
 
 ifpra:		CIFPRAOPTS {
@@ -128,11 +138,117 @@ ifprcr:		"-C" {
 
 dstaddr:	addr
 
-dynparams:	DIMKCOPY iface {
+dynparams:	DIMKCOPY IFACE {
 		}
 	|	DIMKCREATE {
 		}
 	|	DIMKDESTROY {
+		};
+
+stparams:	
+	|	stparamsr;
+
+stparamsr:	stparam
+	|	stparam stparamsr;
+
+stparam:	IMK8022 {
+		}
+	|	IMK8022TR {
+		}
+	|	IMK8023 {
+		}
+	|	IMKETHERII {
+		}
+	|	IMKADVBASE NUMBER {
+		}
+	|	IMKADVSKEW NUMBER {
+		}
+	|	IMKALIAS {
+		}
+	|	IMKANYCAST {
+		}
+	|	IMKARP {
+		}
+	|	IMKBROADCAST IP4ADDR {
+			
+		}
+	|	IMKDEBUG {
+		}
+	|	IMKDELETE {
+		}
+	|	IMKDELETETUNNEL {
+		}
+	|	IMKDOWN {
+		}
+	|	IMKEUI64 {
+		}
+	|	IMKTUNNEL {
+		}
+	|	IMKINSTANCE {
+		}
+	|	IMKLINK0 {
+		}
+	|	IMKLINK1 {
+		}
+	|	IMKLINK2 {
+		}
+	|	IMKMAXUPD {
+		}
+	|	IMKMEDIA {
+		}
+	|	IMKMEDIAOPT {
+		}
+	|	IMKMETRIC {
+		}
+	|	IMKMTU {
+		}
+	|	IMKNETMASK {
+		}
+	|	IMKNSELLENGTH {
+		}
+	|	IMKNWID {
+		}
+	|	IMKNWKEY {
+		}
+	|	IMKPASS {
+		}
+	|	IMKPERSIST {
+		}
+	|	IMKPHASE {
+		}
+	|	IMKPLTIME {
+		}
+	|	IMKPOWERSAVE {
+		}
+	|	IMKPOWERSAVESLEEP {
+		}
+	|	IMKPREFIXLEN {
+		}
+	|	IMKRANGE {
+		}
+	|	IMKSNAP {
+		}
+	|	IMKSNPAOFFSET {
+		}
+	|	IMKSTATE {
+		}
+	|	IMKSYNCIF {
+		}
+	|	IMKTENTATIVE {
+		}
+	|	IMKTRAILERS {
+		}
+	|	IMKTUNNEL {
+		}
+	|	IMKUP {
+		}
+	|	IMKVHID {
+		}
+	|	IMKVLAN {
+		}
+	|	IMKVLANDEV {
+		}
+	|	IMKVLTIME {
 		};
 
 %%
@@ -140,4 +256,47 @@ dynparams:	DIMKCOPY iface {
 int
 lookup(char *keyword)
 {
+	struct ifcmod *m;
+	int hi, lo, mid;
+	char *k;
+	
+	/* Ignore negation (-opt) while finding keyword. */
+	k = keyword[0] == '-' ? keyword + 1 : keyword;
+
+	lo = 0;
+	hi = NIFCMOD-1;
+	while (lo <= hi) {
+		mid = (hi + lo) / 2;
+		switch (strcmp(k, ifcmods[mid].name)) {
+		case 1:
+			/* Target is less than middle; lower hi. */
+			hi = mid-1;
+			break;
+		case 0:
+			m = ifcmods + mid;
+			goto success;
+			/* NOTREACHED */
+		case -1:
+			lo = mid+1;
+			break;
+		}
+	}
+
+	errx(1, "unknown modifier: %s", keyword);
+
+success:
+#ifndef INET6
+	if (m->inet6)
+		errx(1, "'%s' only available in inet6", keyword);
+#endif
+
+#ifdef INET_ONLY
+	if (m->notinet)
+		errx(1, "'%s' not available when only inet", keyword);
+#endif
+	
+	if ((keyword[0] == '-') && (m->neg == 0))
+		errx(1, "unknown modifier: %s", keyword);
+	
+	return m->val;
 }
